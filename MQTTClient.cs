@@ -241,6 +241,17 @@ namespace Opc.Ua.Cloud.Publisher.Configuration
             _client.PublishAsync(message, _cancellationTokenSource.Token).GetAwaiter().GetResult();
         }
 
+        public void PublishSingle(byte[] payload, string variabletopic)
+        {
+            MqttApplicationMessage message = new MqttApplicationMessageBuilder()
+                .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                .WithTopic(Settings.Instance.BrokerMessageTopic + "/" + variabletopic)
+                .WithPayload(payload)
+                .Build();
+
+            _client.PublishAsync(message, _cancellationTokenSource.Token).GetAwaiter().GetResult();
+        }
+
         public void PublishMetadata(byte[] payload)
         {
             MqttApplicationMessage message = new MqttApplicationMessageBuilder()

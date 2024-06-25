@@ -7,6 +7,8 @@ namespace Opc.Ua.Cloud.Publisher.Interfaces
 
         void Publish(byte[] payload);
 
+        void PublishSingle(byte[] payload, string variabletopic);
+
         void PublishMetadata(byte[] metadata);
     }
 }

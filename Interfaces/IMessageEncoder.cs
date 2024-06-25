@@ -8,6 +8,7 @@ namespace Opc.Ua.Cloud.Publisher.Interfaces
         string EncodeHeader(ulong messageID, bool isMetadata = false);
 
         string EncodePayload(MessageProcessorModel messageData, out ushort hash);
+        string EncodeSinglePayload(MessageProcessorModel messageData, out ushort hash, out string variabletopic);
 
         string EncodeMetadata(MessageProcessorModel messageData);
 

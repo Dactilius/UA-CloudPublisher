@@ -7,6 +7,7 @@ namespace Opc.Ua.Cloud.Publisher
     using Opc.Ua.Cloud.Publisher.Interfaces;
     using Opc.Ua.Cloud.Publisher.Models;
     using System;
+    using System.Linq;
 
     public class PubSubTelemetryEncoder : IMessageEncoder
     {
@@ -175,6 +176,72 @@ namespace Opc.Ua.Cloud.Publisher
                 hash = 0;
                 return string.Empty;
             }
+        }
+
+        public string EncodeSinglePayload(MessageProcessorModel messageData, out ushort hash, out string variabletopic)
+        {
+            try
+            {
+                JsonEncoder encoder = new JsonEncoder(messageData.MessageContext, Settings.Instance.ReversiblePubSubEncoding);
+
+                // Calculate hash based on application URI and expanded node ID
+                hash = (ushort)(messageData.ApplicationUri.GetDeterministicHashCode() ^ messageData.ExpandedNodeId.GetDeterministicHashCode());
+                encoder.WriteUInt16("DataSetWriterId", hash);
+
+                // Determine the event value to encode
+                EventValueModel eventValue = messageData.EventValues.FirstOrDefault();
+
+                if (eventValue != null)
+                {
+                    // Filter source timestamp before encoding
+                    eventValue.Value.SourceTimestamp = DateTime.MinValue;
+
+                    // Encode the event value
+                    if (Settings.Instance.ReversiblePubSubEncoding)
+                    {
+                        encoder.WriteVariant(eventValue.Name, eventValue.Value.WrappedValue);
+                    }
+                    else
+                    {
+                        encoder.WriteVariant(eventValue.Name, eventValue.Value);
+                    }
+
+                    // Set the variable topic to the event name
+                    variabletopic = messageData.Name;
+                }
+                else
+                {
+                    // If there are no event values, encode the main message data
+                    messageData.Value.SourceTimestamp = DateTime.MinValue;
+                    messageData.Value.ServerTimestamp = DateTime.MinValue;
+
+                    if (Settings.Instance.ReversiblePubSubEncoding)
+                    {
+                        encoder.WriteVariant(messageData.Name, messageData.Value.WrappedValue);
+                    }
+                    else
+                    {
+                        encoder.WriteVariant(messageData.Name, messageData.Value);
+                    }
+
+                    // Set a default topic name since there's no event value
+                    variabletopic = messageData.Name; // Adjust as per your application logic
+                }
+
+                // Close the "Payload" structure
+                encoder.PopStructure();
+
+                // Return the encoded JSON payload
+                return encoder.CloseAndReturnText();
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Generation of JSON PubSub data message failed.");
+                hash = 0;
+                variabletopic = string.Empty;
+                return string.Empty;
+            }
+
         }
 
         public string EncodeStatus(ulong messageID)

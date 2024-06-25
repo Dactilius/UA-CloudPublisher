@@ -11,6 +11,7 @@ namespace Opc.Ua.Cloud.Publisher
     using Opc.Ua.Cloud.Publisher.Interfaces;
     using Opc.Ua.Cloud.Publisher.Models;
     using System.Linq;
+    using System.Security.Cryptography;
 
     public class MessageProcessor : IMessageProcessor
     {
@@ -32,6 +33,8 @@ namespace Opc.Ua.Cloud.Publisher
         private Timer _metadataTimer;
         private Timer _statusTimer;
         private bool _isRunning = false;
+
+        private string _variableTopic = "";
 
         private static ILogger _logger;
         private readonly IMessageEncoder _encoder;
@@ -145,6 +148,10 @@ namespace Opc.Ua.Cloud.Publisher
                     {
                         BatchMessage(JsonEncodeMessage(messageData));
                         SendBatch(FinishBatch());
+
+                        BatchMessage(JsonEncodeSingleMessage(messageData, out _variableTopic));
+                        _logger.LogDebug(_variableTopic);
+                        SendSingle(FinishBatch(),false,_variableTopic);
                     }
                     else
                     {
@@ -268,6 +275,23 @@ namespace Opc.Ua.Cloud.Publisher
             _nextSendTime = DateTime.UtcNow + TimeSpan.FromSeconds(Settings.Instance.DefaultSendIntervalSeconds);
         }
 
+        private void SendSingle(byte[] bytesToSend, bool batch, string variableTopic)
+        {
+            _logger.LogDebug(variableTopic);
+            if (_sink.SendSingleMessage(bytesToSend, batch, variableTopic))
+            {
+                _logger.LogDebug($"Sent {bytesToSend.Length} bytes to broker!");
+                _logger.LogDebug($"Sent {variableTopic} as topic to broker!");
+            }
+
+            // reset our batch
+            InitBatch();
+
+            // reset our send time
+            _nextSendTime = DateTime.UtcNow + TimeSpan.FromSeconds(Settings.Instance.DefaultSendIntervalSeconds);
+
+        }
+
         private void SendStatusOnTimer(object state)
         {
             // stop the timer while we're sending
@@ -289,7 +313,7 @@ namespace Opc.Ua.Cloud.Publisher
         private void SendMetadataOnTimer(object state)
         {
             // stop the timer while we're sending
-            _metadataTimer.Change(Timeout.Infinite,Timeout.Infinite);
+            _metadataTimer.Change(Timeout.Infinite, Timeout.Infinite);
 
             if (_metadataMessages.Count > 0)
             {
@@ -355,6 +379,42 @@ namespace Opc.Ua.Cloud.Publisher
 
             return jsonMessage;
         }
+
+        private string JsonEncodeSingleMessage(MessageProcessorModel messageData, out string variabletopic)
+        {
+            ushort hash;
+            string jsonMessage = _encoder.EncodeSinglePayload(messageData, out hash, out variabletopic);
+
+            if (Settings.Instance.SendUAMetadata)
+            {
+                string metadataMessage = _encoder.EncodeMetadata(messageData);
+                if (!_metadataMessages.ContainsKey(hash))
+                {
+                    lock (_metadataMessagesLock)
+                    {
+                        _metadataMessages.Add(hash, metadataMessage);
+                    }
+
+                    using (MemoryStream buffer = new MemoryStream())
+                    {
+                        buffer.Write(Encoding.UTF8.GetBytes(_encoder.EncodeHeader(_messageID++, true)));
+                        buffer.Write(Encoding.UTF8.GetBytes(","));
+                        buffer.Write(Encoding.UTF8.GetBytes(metadataMessage));
+
+                        if (_sink.SendMetadata(buffer.ToArray()))
+                        {
+                            _logger.LogDebug($"Sent {_batchBuffer.Length} metadata bytes to broker!");
+                        }
+                    }
+                }
+            }
+
+            Diagnostics.Singleton.Info.NumberOfEvents++;
+
+
+            return jsonMessage;
+        }
+
 
         private int CalculateBatchTimeout(CancellationToken cancellationToken = default)
         {

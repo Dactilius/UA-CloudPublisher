@@ -233,5 +233,10 @@ namespace Opc.Ua.Cloud.Publisher.Configuration
                 }
             }
         }
+
+        public void PublishSingle(byte[] payload, string variabletopic)
+        {
+            throw new NotImplementedException();
+        }
     }
 }
